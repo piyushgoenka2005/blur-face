@@ -104,9 +104,63 @@ app.add_middleware(
 app.include_router(routes.router, prefix="/api")
 
 
+@app.websocket("/ws/stream")
+async def stream_websocket(websocket: WebSocket):
+    """JPEG frame stream over WebSocket (works through Render / Vercel HTTPS).
+
+    Prefer this on cloud hosts where WebRTC UDP media is blocked. Binary
+    frames are blurred-only JPEGs; text messages carry metrics.
+    """
+    await websocket.accept()
+    logger.info("JPEG stream WebSocket client connected")
+    frame_count = 0
+
+    try:
+        while True:
+            if pipeline is None or not pipeline.is_active:
+                await asyncio.sleep(0.1)
+                continue
+
+            jpeg = await asyncio.to_thread(pipeline.get_latest_jpeg_bytes)
+            if jpeg is None:
+                await asyncio.sleep(0.05)
+                continue
+
+            await websocket.send_bytes(jpeg)
+            frame_count += 1
+
+            if frame_count % max(1, settings.ws_metrics_interval) == 0:
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "metrics",
+                            "data": pipeline.build_metrics_payload(),
+                        }
+                    )
+                )
+                await websocket.send_text(
+                    json.dumps(
+                        {
+                            "type": "source_status",
+                            "data": pipeline.get_source_info(),
+                        }
+                    )
+                )
+
+            # Pace stream; keep below processing FPS to avoid backlog.
+            await asyncio.sleep(max(0.04, 1.0 / max(settings.webrtc_target_fps, 1)))
+    except WebSocketDisconnect:
+        logger.info("JPEG stream WebSocket client disconnected")
+    except Exception as e:
+        msg = str(e).strip() or type(e).__name__
+        logger.warning("JPEG stream WebSocket closed: %s", msg)
+    finally:
+        logger.info("JPEG stream WebSocket connection closed")
+
+
 @app.websocket("/ws/metrics")
 async def metrics_websocket(websocket: WebSocket):
-    """Lightweight metrics channel (no video — video is WebRTC)."""
+    """Lightweight metrics channel (no video — video is WebRTC or /ws/stream)."""
     await websocket.accept()
     logger.info("Metrics WebSocket client connected")
 

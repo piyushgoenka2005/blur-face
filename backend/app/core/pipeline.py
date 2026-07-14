@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+import cv2
 import numpy as np
 
 from .detector import SCRFDDetector
@@ -179,6 +180,21 @@ class FramePipeline:
             if self._latest_blurred is None:
                 return None
             return self._latest_blurred.copy()
+
+    def get_latest_jpeg_bytes(self) -> Optional[bytes]:
+        """Encode the latest blurred frame as JPEG for WebSocket streaming.
+
+        Used as a reliable fallback when WebRTC media cannot traverse cloud
+        hosts (e.g. Render) that block UDP.
+        """
+        frame = self.get_latest_blurred_frame()
+        if frame is None:
+            return None
+        encode_params = [cv2.IMWRITE_JPEG_QUALITY, int(self.jpeg_quality)]
+        ok, jpeg = cv2.imencode(".jpg", frame, encode_params)
+        if not ok:
+            return None
+        return jpeg.tobytes()
 
     def _ensure_process_thread(self) -> None:
         if self._process_thread and self._process_thread.is_alive():

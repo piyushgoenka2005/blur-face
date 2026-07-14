@@ -5,9 +5,10 @@ import { ConnectionStatus } from './components/ConnectionStatus';
 import { Controls } from './components/Controls';
 import { SourceSelection } from './components/SourceSelection';
 import { useWebRTC } from './hooks/useWebRTC';
+import { useJpegStream } from './hooks/useJpegStream';
 import { useMetricsChannel } from './hooks/useMetricsChannel';
 import type { AppView, ConfigData, VideoSourceKind } from './types';
-import { backendBaseUrl } from './config';
+import { backendBaseUrl, streamMode } from './config';
 
 const defaultConfig: ConfigData = {
   blur_method: 'pixelation',
@@ -43,9 +44,17 @@ function App() {
   const [isChangingSource, setIsChangingSource] = useState(false);
 
   const streamEnabled = view === 'dashboard';
+  const useJpeg = streamMode === 'jpeg';
 
-  const { stream, status, reconnect } = useWebRTC({ enabled: streamEnabled });
-  const { metrics, sourceStatus } = useMetricsChannel({ enabled: streamEnabled });
+  const webrtc = useWebRTC({ enabled: streamEnabled && !useJpeg });
+  const jpeg = useJpegStream({ enabled: streamEnabled && useJpeg });
+  // Metrics WS only needed when using WebRTC (JPEG stream already embeds metrics).
+  const metricsOnly = useMetricsChannel({ enabled: streamEnabled && !useJpeg });
+
+  const status = useJpeg ? jpeg.status : webrtc.status;
+  const metrics = useJpeg ? jpeg.metrics : metricsOnly.metrics;
+  const sourceStatus = useJpeg ? jpeg.sourceStatus : metricsOnly.sourceStatus;
+  const reconnect = useJpeg ? jpeg.reconnect : webrtc.reconnect;
 
   useEffect(() => {
     let cancelled = false;
@@ -119,7 +128,6 @@ function App() {
 
   const handleControl = useCallback((action: 'start' | 'stop') => {
     setIsRunning(action === 'start');
-    // Processing continues on the backend; pause is UI-level for now.
   }, []);
 
   const handleSourceConnected = useCallback((sourceType: VideoSourceKind, cameraName: string) => {
@@ -159,31 +167,32 @@ function App() {
         <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-200">
-              WebRTC prototype
+              Live blur dashboard
             </div>
             <h1 className="mt-4 text-3xl md:text-5xl font-semibold tracking-tight text-white">
               Real-Time Face-Blur System
             </h1>
             <p className="mt-3 max-w-3xl text-sm md:text-base text-slate-300">
-              RTSP/Webcam → SCRFD → Blur → WebRTC. Browser receives blurred video only.
+              Processing runs on the backend. Browser receives blurred video only
+              ({useJpeg ? 'WebSocket JPEG — cloud compatible' : 'WebRTC'}).
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 text-sm text-slate-300">
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="text-slate-400">WebRTC</div>
+              <div className="text-slate-400">Transport</div>
+              <div className="font-mono text-white">{useJpeg ? 'JPEG WS' : 'WebRTC'}</div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-slate-400">Stream</div>
               <div className="font-mono text-white">{status}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <div className="text-slate-400">Source</div>
-              <div className="font-mono text-white">
-                {sourceStatus?.source_type
-                  || (selectedSource === 'rtsp' ? 'RTSP Camera' : 'Laptop Webcam')}
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              <div className="text-slate-400">Camera</div>
               <div className="font-mono text-white truncate">
-                {sourceStatus?.camera_name || selectedCameraName || '—'}
+                {sourceStatus?.camera_name
+                  || selectedCameraName
+                  || sourceStatus?.source_type
+                  || (selectedSource === 'rtsp' ? 'RTSP Camera' : 'Laptop Webcam')}
               </div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
@@ -207,7 +216,7 @@ function App() {
             onClick={reconnect}
             className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-white/10 transition-colors"
           >
-            Reconnect WebRTC
+            Reconnect Stream
           </button>
           {isLoadingConfig && (
             <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300">
@@ -217,7 +226,13 @@ function App() {
         </div>
 
         <section>
-          <VideoStream stream={stream} status={status} sourceStatus={sourceStatus} />
+          <VideoStream
+            stream={useJpeg ? null : webrtc.stream}
+            frames={useJpeg ? jpeg.frames : []}
+            status={status}
+            sourceStatus={sourceStatus}
+            transportLabel={useJpeg ? 'JPEG' : 'WebRTC'}
+          />
         </section>
 
         <section>
@@ -235,6 +250,14 @@ function App() {
               metrics={metrics}
               sourceStatus={sourceStatus}
             />
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-xs text-amber-100/90 space-y-1">
+              <div className="font-semibold text-amber-200">Cloud note</div>
+              <p>
+                Render has no physical laptop webcam. Choosing “Laptop Webcam” shows
+                synthetic demo frames on the server. Use an RTSP/IP camera for real video,
+                or run the backend on your PC for a real webcam.
+              </p>
+            </div>
           </div>
           <div className="lg:col-span-2">
             <Controls

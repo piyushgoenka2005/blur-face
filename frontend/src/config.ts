@@ -9,12 +9,10 @@ function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
-const envUrl = (import.meta as ImportMeta & { env: Record<string, string> }).env
-  ?.VITE_BACKEND_URL?.trim();
+const env = (import.meta as ImportMeta & { env: Record<string, string> }).env || {};
+const envUrl = env.VITE_BACKEND_URL?.trim();
 
-const isDev =
-  typeof import.meta !== 'undefined' &&
-  (import.meta as ImportMeta & { env: { DEV?: boolean } }).env?.DEV;
+const isDev = Boolean(env.DEV);
 
 const raw =
   envUrl ||
@@ -27,3 +25,20 @@ const raw =
 export const backendBaseUrl = normalizeBaseUrl(raw);
 
 export const websocketUrl = backendBaseUrl.replace(/^http/, 'ws');
+
+/**
+ * Stream transport:
+ * - jpeg: WebSocket JPEG (works on Render/Vercel) — default for remote backends
+ * - webrtc: aiortc peer connection — best for local LAN
+ */
+const streamModeEnv = (env.VITE_STREAM_MODE || '').toLowerCase();
+const looksRemote =
+  Boolean(backendBaseUrl) &&
+  !/localhost|127\.0\.0\.1/i.test(backendBaseUrl);
+
+export const streamMode: 'jpeg' | 'webrtc' =
+  streamModeEnv === 'webrtc' || streamModeEnv === 'jpeg'
+    ? (streamModeEnv as 'jpeg' | 'webrtc')
+    : looksRemote
+      ? 'jpeg'
+      : 'webrtc';
