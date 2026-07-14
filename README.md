@@ -1,60 +1,23 @@
-﻿# Real-Time Face Blur System
+﻿# Real-Time Face Blur System (Browser AI)
 
-Webcam / RTSP → SCRFD face detect → blur → **WebRTC** stream to a React dashboard.
-
-## Deploy on Vercel (frontend)
-
-Vercel hosts the **React dashboard only**. The FastAPI + OpenCV + WebRTC backend needs a
-long-running host (Railway, Render, Fly.io, VPS, or your laptop) — not Vercel serverless.
-
-1. Push this repo to GitHub.
-2. In [Vercel](https://vercel.com) → **New Project** → import this repo.
-3. Root `vercel.json` builds `frontend/`.
-4. Add env var:
-
-| Name | Value |
-|------|--------|
-| `VITE_BACKEND_URL` | Your backend base URL, e.g. `https://your-api.example.com` |
-
-5. On the backend host, set:
-
-```env
-CORS_ORIGINS=https://your-app.vercel.app,http://localhost:5173
-```
-
-6. Redeploy the frontend after changing `VITE_BACKEND_URL`.
-
-## Features
-
-- Real-time face detection (InsightFace SCRFD) from webcam or RTSP/CCTV
-- Gaussian / pixelation blur before egress
-- WebRTC blurred video (H264 preferred, VP8 fallback)
-- Live metrics: FPS, latency, faces, compute mode, source status
-- Source selection UI + RTSP auto-reconnect
+Meet-style webcam privacy: **camera permission, face detection, and blur all run in the browser**.
+Nothing is sent to a server for webcam mode. Deploy the frontend on **Vercel only**.
 
 ## Architecture
 
 ```
-Video Source (Webcam | RTSP)
-  → SCRFD Detector → Blur Engine → WebRTC Publisher → React Dashboard
+Browser
+  → getUserMedia (permission + capture)
+  → Face detection (SCRFD ONNX Web → fallback MediaPipe)
+  → Canvas blur (Gaussian / Pixelation)
+  → Dashboard preview
 ```
 
-## Quick Start
+- **No WebSocket** for webcam mode  
+- **No FastAPI** involved for webcam mode  
+- **`backend/`** is kept untouched for a future CCTV / RTSP implementation  
 
-### Backend
-
-```bash
-cd backend
-python -m venv venv
-# Windows: venv\Scripts\activate
-# Linux/Mac: source venv/bin/activate
-pip install -r requirements.txt
-python run.py
-```
-
-API: http://127.0.0.1:8001
-
-### Frontend
+## Quick start
 
 ```bash
 cd frontend
@@ -62,30 +25,49 @@ npm install
 npm run dev
 ```
 
-UI: http://127.0.0.1:5173
+Open http://127.0.0.1:5173 → **Laptop Webcam** → allow camera.
 
-## Configuration
+## Detection engines
 
-See `backend/.env.example` and `frontend/.env.example`.
+| Priority | Engine | Notes |
+|----------|--------|--------|
+| Preferred | SCRFD via ONNX Runtime Web | Place `frontend/public/models/scrfd.onnx` |
+| Fallback | MediaPipe Face Detection | Used automatically if SCRFD is missing/slow to load |
 
-```env
-# backend/.env
-CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+## Blur
 
-# frontend/.env.local
-VITE_BACKEND_URL=http://127.0.0.1:8001
+Canvas-side **Gaussian** and **Pixelation**; switch live from the dashboard.
+
+## Target performance
+
+- 640×480  
+- ~25–30 FPS (device dependent)  
+- `requestAnimationFrame` loop, reused canvas contexts / detector session  
+
+## Deploy (Vercel)
+
+1. Import this repo in Vercel.  
+2. Root `vercel.json` builds `frontend/` only.  
+3. **No** `VITE_BACKEND_URL` needed for webcam mode.  
+4. Site must be served over **HTTPS** (or localhost) for `getUserMedia`.
+
+## CCTV / RTSP
+
+Selecting **CCTV / RTSP** shows a placeholder. The Python backend under `backend/` remains for a later release.
+
+## Backup
+
+A snapshot of the previous full-stack project is stored as:
+
+`face-blur-prototype-backup.zip`
+
+## Scripts
+
+```bash
+cd frontend
+npm run build    # production build
+npm run preview  # preview build
 ```
-
-## Useful API routes
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | Health check |
-| GET/POST | `/api/config` | Read / update blur settings |
-| POST | `/api/source/connect` | Connect webcam or RTSP |
-| POST | `/api/source/disconnect` | Release source |
-| POST | `/api/webrtc/offer` | WebRTC SDP offer/answer |
-| WS | `/ws/metrics` | Metrics channel |
 
 ## License
 

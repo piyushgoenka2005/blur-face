@@ -39,6 +39,10 @@ frontend/dist/
 frontend/.vite/
 frontend/coverage/
 
+# Local project backup archive (kept on disk; optional to commit)
+face-blur-prototype-backup.zip
+
+
 # Vercel
 .vercel/
 
