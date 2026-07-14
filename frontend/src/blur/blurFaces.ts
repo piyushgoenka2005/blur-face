@@ -10,7 +10,7 @@ export function blurFaces(
   method: BlurMethod = 'gaussian',
   options: { blurRadius?: number; pixelBlock?: number } = {}
 ): void {
-  const { blurRadius = 0, pixelBlock = 8 } = options;
+  const { blurRadius = 0, pixelBlock = 0 } = options;
   const canvas = ctx.canvas;
 
   for (const face of faces) {
@@ -32,28 +32,47 @@ export function blurFaces(
   }
 }
 
+/**
+ * Max-strength mosaic pixelation.
+ * Scales block size to the face so features collapse into a few large tiles
+ * (~5 cells across), instead of a fine grid that still looks identifiable.
+ */
 function pixelateRegion(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
-  block: number
+  cellsHint: number
 ): void {
-  const bw = Math.max(1, Math.floor(w / Math.max(4, block)));
-  const bh = Math.max(1, Math.floor(h / Math.max(4, block)));
+  const faceScale = Math.min(w, h);
+  // Coarse TV-style mosaic: 4–6 tiles on the short edge.
+  const cells = Math.max(
+    4,
+    Math.min(6, cellsHint > 0 ? cellsHint : Math.round(faceScale / 36))
+  );
+  const bw = Math.max(2, Math.round((w / faceScale) * cells));
+  const bh = Math.max(2, Math.round((h / faceScale) * cells));
 
   const tmp = document.createElement('canvas');
-  tmp.width = Math.max(1, bw);
-  tmp.height = Math.max(1, bh);
+  tmp.width = bw;
+  tmp.height = bh;
   const tctx = tmp.getContext('2d');
   if (!tctx) return;
 
+  // Average colors into each mosaic cell on downsample.
   tctx.imageSmoothingEnabled = true;
-  tctx.drawImage(ctx.canvas, x, y, w, h, 0, 0, tmp.width, tmp.height);
+  tctx.imageSmoothingQuality = 'medium';
+  tctx.drawImage(ctx.canvas, x, y, w, h, 0, 0, bw, bh);
 
+  // Nearest-neighbor upscale → hard square mosaic, no soft bleed.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tmp, 0, 0, tmp.width, tmp.height, x, y, w, h);
+  ctx.drawImage(tmp, 0, 0, bw, bh, x, y, w, h);
+  ctx.restore();
   ctx.imageSmoothingEnabled = true;
 }
 
