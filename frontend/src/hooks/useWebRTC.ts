@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionStatus } from '../types';
-import { backendBaseUrl } from '../config';
+import { apiUrl } from '../config';
 
 const STUN_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -101,7 +101,7 @@ export function useWebRTC(options: UseWebRTCOptions = {}): UseWebRTCReturn {
         throw new Error('Missing local SDP description');
       }
 
-      const response = await fetch(`${backendBaseUrl}/api/webrtc/offer`, {
+      const response = await fetch(apiUrl('/api/webrtc/offer'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sdp: local.sdp, type: local.type }),

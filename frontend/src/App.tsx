@@ -8,7 +8,7 @@ import { useWebRTC } from './hooks/useWebRTC';
 import { useJpegStream } from './hooks/useJpegStream';
 import { useMetricsChannel } from './hooks/useMetricsChannel';
 import type { AppView, ConfigData, VideoSourceKind } from './types';
-import { backendBaseUrl, streamMode } from './config';
+import { apiUrl, streamMode } from './config';
 
 const defaultConfig: ConfigData = {
   blur_method: 'pixelation',
@@ -62,9 +62,9 @@ function App() {
     const load = async () => {
       try {
         const [configResponse, healthResponse, sourceResponse] = await Promise.all([
-          fetch(`${backendBaseUrl}/api/config`),
-          fetch(`${backendBaseUrl}/api/health`),
-          fetch(`${backendBaseUrl}/api/source`),
+          fetch(apiUrl('/api/config')),
+          fetch(apiUrl('/api/health')),
+          fetch(apiUrl('/api/source')),
         ]);
 
         if (configResponse.ok) {
@@ -112,7 +112,7 @@ function App() {
   const handleConfigChange = useCallback(async (newConfig: Partial<ConfigData>) => {
     setConfig(prev => ({ ...prev, ...newConfig }));
     try {
-      const res = await fetch(`${backendBaseUrl}/api/config`, {
+      const res = await fetch(apiUrl('/api/config'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig),
@@ -140,7 +140,7 @@ function App() {
   const handleChangeSource = useCallback(async () => {
     setIsChangingSource(true);
     try {
-      await fetch(`${backendBaseUrl}/api/source/disconnect`, { method: 'POST' });
+      await fetch(apiUrl('/api/source/disconnect'), { method: 'POST' });
     } catch {
       // Still return to selection even if disconnect fails.
     } finally {
@@ -154,7 +154,6 @@ function App() {
   if (view === 'source') {
     return (
       <SourceSelection
-        backendBaseUrl={backendBaseUrl}
         onConnected={handleSourceConnected}
       />
     );

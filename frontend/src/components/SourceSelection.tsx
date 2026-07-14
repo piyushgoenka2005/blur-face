@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RtspConnectForm, VideoSourceKind } from '../types';
+import { apiUrl } from '../config';
 
 interface SourceSelectionProps {
   onConnected: (sourceType: VideoSourceKind, cameraName: string) => void;
-  backendBaseUrl: string;
 }
 
 const initialRtspForm: RtspConnectForm = {
@@ -17,7 +17,7 @@ const initialRtspForm: RtspConnectForm = {
   stream_path: '',
 };
 
-export function SourceSelection({ onConnected, backendBaseUrl }: SourceSelectionProps) {
+export function SourceSelection({ onConnected }: SourceSelectionProps) {
   const [step, setStep] = useState<'choose' | 'rtsp'>('choose');
   const [form, setForm] = useState<RtspConnectForm>(initialRtspForm);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -44,7 +44,7 @@ export function SourceSelection({ onConnected, backendBaseUrl }: SourceSelection
     setIsConnecting(true);
     setError(null);
     try {
-      const response = await fetch(`${backendBaseUrl}/api/source/connect`, {
+      const response = await fetch(apiUrl('/api/source/connect'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -88,7 +88,7 @@ export function SourceSelection({ onConnected, backendBaseUrl }: SourceSelection
           };
 
     try {
-      const response = await fetch(`${backendBaseUrl}/api/source/connect`, {
+      const response = await fetch(apiUrl('/api/source/connect'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

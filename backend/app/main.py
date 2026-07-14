@@ -87,21 +87,47 @@ _cors_origins = [
     for o in settings.cors_origins.split(",")
     if o.strip()
 ]
+# Ensure production frontend is always allowed even if Render env is stale.
+for _origin in (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://blur-face.vercel.app",
+):
+    if _origin not in _cors_origins:
+        _cors_origins.append(_origin)
+
 # Allow any Vercel deploy / preview URL without listing each one.
 _cors_origin_regex = r"https://.*\.vercel\.app"
 
 logger.info("CORS allow_origins=%s regex=%s", _cors_origins, _cors_origin_regex)
 
+# credentials=False so browsers accept these origins without cookie complexity.
+# Frontend uses simple fetch/WebSocket — it does not need cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_cors_origins or ["http://localhost:5173"],
+    allow_origins=_cors_origins,
     allow_origin_regex=_cors_origin_regex,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(routes.router, prefix="/api")
+
+
+@app.get("/")
+async def root():
+    """Friendly landing so opening the Render URL isn't a confusing 404."""
+    return {
+        "service": "Real-Time Face Blur API",
+        "status": "ok",
+        "docs": "/docs",
+        "health": "/api/health",
+        "metrics": "/api/metrics",
+        "source": "/api/source",
+        "jpeg_stream": "/ws/stream",
+        "webrtc_offer": "/api/webrtc/offer",
+    }
 
 
 @app.websocket("/ws/stream")

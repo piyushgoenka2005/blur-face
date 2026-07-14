@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MetricsData, SourceStatus } from '../types';
-import { backendBaseUrl, websocketUrl } from '../config';
+import { apiUrl, websocketUrl } from '../config';
 
 interface UseMetricsChannelOptions {
   enabled?: boolean;
@@ -34,11 +34,11 @@ export function useMetricsChannel(options: UseMetricsChannelOptions = {}): UseMe
 
   const pollOnce = useCallback(async () => {
     try {
-      const res = await fetch(`${backendBaseUrl}/api/metrics`);
+      const res = await fetch(apiUrl('/api/metrics'));
       if (res.ok) {
         applyMetrics(await res.json());
       }
-      const src = await fetch(`${backendBaseUrl}/api/source`);
+      const src = await fetch(apiUrl('/api/source'));
       if (src.ok) {
         setSourceStatus(await src.json());
       }

@@ -26,6 +26,12 @@ export const backendBaseUrl = normalizeBaseUrl(raw);
 
 export const websocketUrl = backendBaseUrl.replace(/^http/, 'ws');
 
+/** Join base + path with exactly one slash (avoids onrender.com//api/...). */
+export function apiUrl(path: string): string {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return `${backendBaseUrl}${normalized}`;
+}
+
 /**
  * Stream transport:
  * - jpeg: WebSocket JPEG (works on Render/Vercel) — default for remote backends
