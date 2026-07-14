@@ -44,6 +44,10 @@ export class BrowserBlurPipeline {
   private fps = 0;
   private lastDetectionMs = 0;
   private lastFaces = 0;
+  /** Pipeline-level hold so blur never blinks off on a brief miss. */
+  private heldFaces: FaceBox[] = [];
+  private lastFaceAt = 0;
+  private static readonly HOLD_MS = 600;
 
   constructor(options: BrowserBlurPipelineOptions) {
     this.processCanvas = options.processCanvas;
@@ -124,6 +128,17 @@ export class BrowserBlurPipeline {
       faces = [];
     }
     this.lastDetectionMs = performance.now() - t0;
+
+    // Hold last boxes through shake / brief misses so redaction stays continuous.
+    if (faces.length > 0) {
+      this.heldFaces = faces;
+      this.lastFaceAt = now;
+    } else if (now - this.lastFaceAt < BrowserBlurPipeline.HOLD_MS && this.heldFaces.length > 0) {
+      faces = this.heldFaces;
+    } else {
+      this.heldFaces = [];
+      faces = [];
+    }
     this.lastFaces = faces.length;
 
     blurFaces(this.processCtx, faces, this.getBlurMethod());
