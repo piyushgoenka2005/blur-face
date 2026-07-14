@@ -106,6 +106,7 @@ export class BrowserBlurPipeline {
   private async processFrame(now: number): Promise<void> {
     if (this.video.readyState < 2) return;
 
+    // Draw camera frame into fixed process canvas first.
     this.processCtx.drawImage(
       this.video,
       0,
@@ -114,21 +115,11 @@ export class BrowserBlurPipeline {
       this.processCanvas.height
     );
 
+    // Detect on the process canvas so boxes are already in canvas coordinates.
     const t0 = performance.now();
     let faces: FaceBox[] = [];
     try {
-      faces = await this.detector.detect(this.video, now);
-      const vw = this.video.videoWidth || this.processCanvas.width;
-      const vh = this.video.videoHeight || this.processCanvas.height;
-      const sx = this.processCanvas.width / vw;
-      const sy = this.processCanvas.height / vh;
-      faces = faces.map((f) => ({
-        ...f,
-        x: f.x * sx,
-        y: f.y * sy,
-        width: f.width * sx,
-        height: f.height * sy,
-      }));
+      faces = await this.detector.detect(this.processCanvas, now);
     } catch {
       faces = [];
     }

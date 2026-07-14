@@ -1,5 +1,5 @@
 /**
- * MediaPipe Face Detection (Tasks Vision) — reliable browser fallback.
+ * MediaPipe Face Detection (Tasks Vision) — reliable browser detector.
  */
 import { FaceDetector, FilesetResolver, type Detection } from '@mediapipe/tasks-vision';
 import type { Detector, FaceBox } from './types';
@@ -13,43 +13,60 @@ export class MediaPipeDetector implements Detector {
   readonly engine = 'MediaPipe' as const;
 
   private detector: FaceDetector | null = null;
-  private lastVideoTime = -1;
+  private lastBoxes: FaceBox[] = [];
 
   async initialize(): Promise<void> {
     const vision = await FilesetResolver.forVisionTasks(WASM_ROOT);
-    this.detector = await FaceDetector.createFromOptions(vision, {
+
+    const options = {
       baseOptions: {
         modelAssetPath: MODEL_URL,
-        delegate: 'GPU',
+        delegate: 'GPU' as const,
       },
-      runningMode: 'VIDEO',
-      minDetectionConfidence: 0.5,
-    });
+      // IMAGE mode: call detect() every frame — avoids VIDEO timestamp quirks.
+      runningMode: 'IMAGE' as const,
+      minDetectionConfidence: 0.4,
+    };
+
+    try {
+      this.detector = await FaceDetector.createFromOptions(vision, options);
+    } catch {
+      this.detector = await FaceDetector.createFromOptions(vision, {
+        ...options,
+        baseOptions: { ...options.baseOptions, delegate: 'CPU' },
+      });
+    }
   }
 
-  async detect(source: HTMLVideoElement | HTMLCanvasElement, timestampMs: number): Promise<FaceBox[]> {
+  async detect(source: HTMLVideoElement | HTMLCanvasElement, _timestampMs: number): Promise<FaceBox[]> {
     if (!this.detector) {
       throw new Error('MediaPipe detector not initialized');
     }
 
-    // For VIDEO mode, MediaPipe prefers HTMLVideoElement with advancing currentTime.
-    if (source instanceof HTMLVideoElement) {
-      if (source.currentTime === this.lastVideoTime) {
-        return [];
-      }
-      this.lastVideoTime = source.currentTime;
-      const result = this.detector.detectForVideo(source, timestampMs);
-      return this.mapDetections(result.detections, source.videoWidth, source.videoHeight);
+    const width =
+      source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+    const height =
+      source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+
+    if (!width || !height) return this.lastBoxes;
+    if (source instanceof HTMLVideoElement && source.readyState < 2) {
+      return this.lastBoxes;
     }
 
-    // Canvas fallback: IMAGE mode isn't switched; draw is not supported in VIDEO-only session.
-    // Callers should pass the HTMLVideoElement when using MediaPipe.
-    return [];
+    try {
+      const result = this.detector.detect(source);
+      this.lastBoxes = this.mapDetections(result.detections, width, height);
+    } catch (err) {
+      console.warn('[MediaPipe] detect failed:', err);
+    }
+
+    return this.lastBoxes;
   }
 
   dispose(): void {
     this.detector?.close();
     this.detector = null;
+    this.lastBoxes = [];
   }
 
   private mapDetections(detections: Detection[], width: number, height: number): FaceBox[] {
@@ -58,13 +75,23 @@ export class MediaPipeDetector implements Detector {
       const box = det.boundingBox;
       if (!box) continue;
       const score = det.categories?.[0]?.score ?? 0;
-      // Expand slightly for fuller face coverage (margin ~12%).
-      const marginX = box.width * 0.12;
-      const marginY = box.height * 0.12;
-      const x = Math.max(0, box.originX - marginX);
-      const y = Math.max(0, box.originY - marginY);
-      const w = Math.min(width - x, box.width + marginX * 2);
-      const h = Math.min(height - y, box.height + marginY * 2);
+      if (score < 0.35) continue;
+
+      // Expand so blur covers forehead / chin / cheeks.
+      const marginX = box.width * 0.22;
+      const marginY = box.height * 0.28;
+      let x = box.originX - marginX;
+      let y = box.originY - marginY;
+      let w = box.width + marginX * 2;
+      let h = box.height + marginY * 2;
+
+      // Clamp to frame.
+      x = Math.max(0, x);
+      y = Math.max(0, y);
+      w = Math.min(width - x, w);
+      h = Math.min(height - y, h);
+      if (w < 8 || h < 8) continue;
+
       boxes.push({ x, y, width: w, height: h, score });
     }
     return boxes;

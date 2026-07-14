@@ -9,7 +9,7 @@ export function blurFaces(
   method: BlurMethod = 'pixelation',
   options: { kernelSize?: number; pixelBlock?: number } = {}
 ): void {
-  const { kernelSize = 24, pixelBlock = 16 } = options;
+  const { kernelSize = 32, pixelBlock = 12 } = options;
   const canvas = ctx.canvas;
 
   for (const face of faces) {
