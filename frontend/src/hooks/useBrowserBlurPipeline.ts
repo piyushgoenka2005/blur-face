@@ -21,7 +21,7 @@ const defaultStats: PipelineStats = {
   fps: 0,
   detectionMs: 0,
   facesDetected: 0,
-  blurMethod: 'pixelation',
+  blurMethod: 'gaussian',
   engine: '—',
   width: 640,
   height: 480,
@@ -33,13 +33,13 @@ export function useBrowserBlurPipeline(): UseBrowserBlurPipelineReturn {
   const cameraRef = useRef<WebcamCamera | null>(null);
   const detectorRef = useRef<Detector | null>(null);
   const pipelineRef = useRef<BrowserBlurPipeline | null>(null);
-  const blurMethodRef = useRef<BlurMethod>('pixelation');
+  const blurMethodRef = useRef<BlurMethod>('gaussian');
 
   const [status, setStatus] = useState<PipelineStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<PipelineStats | null>(null);
   const [engine, setEngine] = useState('—');
-  const [blurMethod, setBlurMethodState] = useState<BlurMethod>('pixelation');
+  const [blurMethod, setBlurMethodState] = useState<BlurMethod>('gaussian');
 
   const setBlurMethod = useCallback((method: BlurMethod) => {
     blurMethodRef.current = method;
