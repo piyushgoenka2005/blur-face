@@ -129,10 +129,14 @@ async def metrics_websocket(websocket: WebSocket):
 
 
 def run():
+    import os
+
+    # Render (and most PaaS) inject PORT; local default stays 8001.
+    port = int(os.environ.get("PORT", "8001"))
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8001,
+        port=port,
         reload=False,
         log_level="info",
     )

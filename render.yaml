@@ -1,0 +1,24 @@
+# Example Render Blueprint — optional.
+# Dashboard path: New → Web Service is enough; use this if you prefer IaC.
+services:
+  - type: web
+    name: blur-face-api
+    runtime: python
+    rootDir: backend
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run.py
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.13"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: WEBRTC_STUN_URLS
+        value: stun:stun.l.google.com:19302
+      - key: WEBRTC_TARGET_FPS
+        value: "15"
+      - key: CAMERA_WIDTH
+        value: "640"
+      - key: CAMERA_HEIGHT
+        value: "480"
