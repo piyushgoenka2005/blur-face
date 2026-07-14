@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     # Performance
     jpeg_quality: int = Field(default=80, ge=10, le=100, description="JPEG encoding quality")
 
-    # CORS — comma-separated origins (include your Vercel URL in production)
+    # CORS — comma-separated origins. Use * to allow any origin (dev/demo only).
+    # Also allow all https://*.vercel.app by default via regex in main.py.
     cors_origins: str = Field(
-        default="http://localhost:5173,http://127.0.0.1:5173",
+        default="http://localhost:5173,http://127.0.0.1:5173,https://blur-face.vercel.app",
         description="Allowed browser origins for the React dashboard",
     )
 

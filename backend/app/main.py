@@ -82,10 +82,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+_cors_origins = [
+    o.strip().rstrip("/")
+    for o in settings.cors_origins.split(",")
+    if o.strip()
+]
+# Allow any Vercel deploy / preview URL without listing each one.
+_cors_origin_regex = r"https://.*\.vercel\.app"
+
+logger.info("CORS allow_origins=%s regex=%s", _cors_origins, _cors_origin_regex)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins or ["http://localhost:5173"],
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
