@@ -1,9 +1,9 @@
 import type { RefObject } from 'react';
-import type { PipelineStatus } from '../hooks/useBrowserBlurPipeline';
+import type { CloudPipelineStatus } from '../hooks/useCloudWebcamPipeline';
 
 interface VideoCanvasProps {
   canvasRef: RefObject<HTMLCanvasElement>;
-  status: PipelineStatus;
+  status: CloudPipelineStatus;
 }
 
 export function VideoCanvas({ canvasRef, status }: VideoCanvasProps) {
@@ -12,13 +12,20 @@ export function VideoCanvas({ canvasRef, status }: VideoCanvasProps) {
   const label =
     status === 'requesting'
       ? 'Waiting for camera permission...'
-      : status === 'loading'
-        ? 'Loading face detector...'
+      : status === 'connecting'
+        ? 'Connecting to backend...'
         : status === 'error'
-          ? 'Camera / detector error'
+          ? 'Connection error'
           : status === 'stopped'
             ? 'Stopped'
-            : 'Starting...';
+            : 'Ready — press Start Camera';
+
+  const hint =
+    status === 'requesting'
+      ? 'Your browser will prompt for webcam access'
+      : status === 'connecting'
+        ? 'Opening WebSocket /ws/process'
+        : 'Frames are processed on the FastAPI backend (SCRFD)';
 
   return (
     <div className="relative w-full max-w-4xl mx-auto">
@@ -34,11 +41,7 @@ export function VideoCanvas({ canvasRef, status }: VideoCanvasProps) {
           <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
             <div className="text-center px-6">
               <div className="text-2xl font-mono mb-2 text-cyan-200">{label}</div>
-              <div className="text-sm text-gray-400">
-                {status === 'requesting'
-                  ? 'Your browser will prompt for webcam access'
-                  : 'All processing stays in this tab'}
-              </div>
+              <div className="text-sm text-gray-400">{hint}</div>
             </div>
           </div>
         )}
@@ -46,7 +49,7 @@ export function VideoCanvas({ canvasRef, status }: VideoCanvasProps) {
         {status === 'running' && (
           <div className="absolute top-3 right-3 flex items-center gap-2 text-green-400 text-sm font-mono">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            LIVE · Browser
+            LIVE · Cloud
           </div>
         )}
       </div>

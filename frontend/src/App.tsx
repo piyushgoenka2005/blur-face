@@ -1,19 +1,24 @@
-import { useState } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { SourceSelection } from './components/SourceSelection';
 import { WebcamDashboard } from './pages/WebcamDashboard';
-
-type View = 'source' | 'webcam';
+import { RtspConnection } from './pages/RtspConnection';
+import { CctvDashboard } from './pages/CctvDashboard';
 
 /**
- * Browser-only face blur app.
- * Webcam mode never talks to the FastAPI backend.
+ * Route map:
+ *  /        → Source selection
+ *  /webcam  → Laptop webcam (cloud processing)
+ *  /rtsp    → RTSP connection form
+ *  /cctv    → Live CCTV blurred stream dashboard
  */
 export default function App() {
-  const [view, setView] = useState<View>('source');
-
-  if (view === 'source') {
-    return <SourceSelection onWebcamSelected={() => setView('webcam')} />;
-  }
-
-  return <WebcamDashboard onChangeSource={() => setView('source')} />;
+  return (
+    <Routes>
+      <Route path="/" element={<SourceSelection />} />
+      <Route path="/webcam" element={<WebcamDashboard />} />
+      <Route path="/rtsp" element={<RtspConnection />} />
+      <Route path="/cctv" element={<CctvDashboard />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
 }

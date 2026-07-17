@@ -1,5 +1,5 @@
-# Example Render Blueprint — optional.
-# Dashboard path: New → Web Service is enough; use this if you prefer IaC.
+# Render Blueprint — Face Blur API
+# Dashboard: New → Blueprint → connect this repo, or create a Web Service manually.
 services:
   - type: web
     name: blur-face-api
@@ -12,13 +12,37 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.10.13"
+      - key: PORT
+        generateValue: false
+      # Comma-separated browser origins (no trailing slash). Also allows *.vercel.app via code regex.
       - key: CORS_ORIGINS
-        sync: false
+        value: "http://localhost:5173,http://127.0.0.1:5173,https://blur-face.vercel.app"
+      # Cloud: never open a physical webcam on the Render host.
+      - key: DISABLE_SERVER_WEBCAM
+        value: "true"
       - key: WEBRTC_STUN_URLS
-        value: stun:stun.l.google.com:19302
+        value: "stun:stun.l.google.com:19302"
       - key: WEBRTC_TARGET_FPS
         value: "15"
       - key: CAMERA_WIDTH
         value: "640"
       - key: CAMERA_HEIGHT
         value: "480"
+      - key: JPEG_QUALITY
+        value: "75"
+      - key: BLUR_METHOD
+        value: "gaussian"
+      - key: BLUR_KERNEL_SIZE
+        value: "51"
+      - key: BLUR_SIGMA
+        value: "30.0"
+      - key: BLUR_PIXELATION_BLOCK
+        value: "16"
+      - key: DET_CONF_THRESHOLD
+        value: "0.5"
+      - key: RTSP_RECONNECT_INTERVAL
+        value: "3.0"
+      - key: RTSP_OPEN_TIMEOUT
+        value: "8.0"
+      - key: WS_METRICS_INTERVAL
+        value: "10"

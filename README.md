@@ -1,72 +1,61 @@
-﻿# Real-Time Face Blur System (Browser AI)
+﻿# Real-Time Face Blur System
 
-Meet-style webcam privacy: **camera permission, face detection, and blur all run in the browser**.
-Nothing is sent to a server for webcam mode. Deploy the frontend on **Vercel only**.
+Cloud face-blur: **Vercel frontend** + **Render FastAPI** (InsightFace SCRFD).
 
 ## Architecture
 
 ```
-Browser
-  → getUserMedia (permission + capture)
-  → Face detection (SCRFD ONNX Web → fallback MediaPipe)
-  → Canvas blur (Gaussian / Pixelation)
-  → Dashboard preview
+Browser (Vercel)
+  ├── Laptop Webcam → getUserMedia → WS /ws/process → SCRFD + blur → display
+  └── CCTV / RTSP   → POST /api/source/connect → WS /ws/stream → display
+
+Backend (Render)
+  VideoSource → SCRFD (once) → Blur → JPEG Encoder → Streamer
 ```
 
-- **No WebSocket** for webcam mode  
-- **No FastAPI** involved for webcam mode  
-- **`backend/`** is kept untouched for a future CCTV / RTSP implementation  
+- **No AI in the browser** for production webcam mode.
+- **No webcam on the Render host** — set `DISABLE_SERVER_WEBCAM=true`.
+- Shared SCRFD detector for browser frames and RTSP.
 
-## Quick start
+## Quick start (local)
 
 ```bash
+# Backend
+cd backend
+python -m venv venv && .\venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+python run.py
+
+# Frontend
 cd frontend
-npm install
-npm run dev
+cp .env.example .env.local
+npm install && npm run dev
 ```
 
-Open http://127.0.0.1:5173 → **Laptop Webcam** → allow camera.
+Open http://127.0.0.1:5173 → choose source.
 
-## Detection engines
+## Deploy
 
-| Priority | Engine | Notes |
-|----------|--------|--------|
-| Preferred | SCRFD via ONNX Runtime Web | Place `frontend/public/models/scrfd.onnx` |
-| Fallback | MediaPipe Face Detection | Used automatically if SCRFD is missing/slow to load |
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for:
 
-## Blur
+- Vercel + Render setup  
+- Environment variable tables  
+- Health check `/api/health`  
+- Remote webcam / RTSP verification  
 
-Canvas-side **Gaussian** and **Pixelation**; switch live from the dashboard.
+### Env at a glance
 
-## Target performance
+| Where | Variable | Example |
+|-------|----------|---------|
+| Vercel | `VITE_BACKEND_URL` | `https://blur-face-api.onrender.com` |
+| Vercel | `VITE_STREAM_MODE` | `jpeg` |
+| Render | `CORS_ORIGINS` | `https://blur-face.vercel.app,...` |
+| Render | `DISABLE_SERVER_WEBCAM` | `true` |
 
-- 640×480  
-- ~25–30 FPS (device dependent)  
-- `requestAnimationFrame` loop, reused canvas contexts / detector session  
+## Health
 
-## Deploy (Vercel)
-
-1. Import this repo in Vercel.  
-2. Root `vercel.json` builds `frontend/` only.  
-3. **No** `VITE_BACKEND_URL` needed for webcam mode.  
-4. Site must be served over **HTTPS** (or localhost) for `getUserMedia`.
-
-## CCTV / RTSP
-
-Selecting **CCTV / RTSP** shows a placeholder. The Python backend under `backend/` remains for a later release.
-
-## Backup
-
-A snapshot of the previous full-stack project is stored as:
-
-`face-blur-prototype-backup.zip`
-
-## Scripts
-
-```bash
-cd frontend
-npm run build    # production build
-npm run preview  # preview build
+```text
+GET /api/health  →  { "status": "ok", ... }
 ```
 
 ## License

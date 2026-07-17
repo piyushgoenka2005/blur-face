@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     # Performance
     jpeg_quality: int = Field(default=80, ge=10, le=100, description="JPEG encoding quality")
 
+    # Cloud deploy: block OpenCV device webcam on the server (browser push is used instead).
+    disable_server_webcam: bool = Field(
+        default=False,
+        description="When true, POST /api/source/connect rejects source_type=webcam",
+    )
+
     # CORS — comma-separated origins. Use * to allow any origin (dev/demo only).
     # Also allow all https://*.vercel.app by default via regex in main.py.
     cors_origins: str = Field(

@@ -1,10 +1,11 @@
-﻿"""Frame processing pipeline.
+﻿"""Unified processing pipeline (SOLID orchestration).
 
-Video Source → SCRFD Detector → Blur Engine → (latest blurred frame)
-                                              ↘ WebRTC publisher
+```
+VideoSource  →  SCRFDDetector  →  blur_faces  →  JpegEncoder  →  Streamer
+```
 
-Processing runs continuously in a background thread and always keeps only
-the newest blurred frame. Transport (WebRTC) never drives detection.
+The detector only receives BGR ndarrays. It never knows whether frames
+came from ``BrowserWebcamSource`` or ``RTSPSource``.
 """
 
 from __future__ import annotations
@@ -13,13 +14,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
-import cv2
 import numpy as np
 
 from .detector import SCRFDDetector
 from .blur import blur_faces
+from .encoder import JpegEncoder
 from .metrics import MetricsCollector, LatencyBreakdown, PipelineMetrics
 from ..video_sources.base import ConnectionStatus, VideoSource
 
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessedFrame:
-    """Result of one detect+blur cycle (BGR frame for WebRTC, metrics attached)."""
+    """Result of one detect → blur → encode cycle."""
 
     frame: np.ndarray
     timestamp: float
@@ -37,11 +38,17 @@ class ProcessedFrame:
     blur_latency_ms: float
     encode_latency_ms: float
     total_latency_ms: float
-    # Kept for backwards-compatible call sites that still expect jpeg_bytes.
     jpeg_bytes: bytes = b""
+    seq: int = 0
 
 
 class FramePipeline:
+    """Orchestrates VideoSource → SCRFD → Blur → Encoder.
+
+    Owns one shared detector for the process lifetime. Swapping sources
+    never reloads the model.
+    """
+
     def __init__(
         self,
         detector: SCRFDDetector,
@@ -64,24 +71,33 @@ class FramePipeline:
         self.blur_sigma = blur_sigma
         self.blur_pixelation_block = blur_pixelation_block
         self.blur_margin = blur_margin
-        self.jpeg_quality = jpeg_quality
         self.metrics_interval = metrics_interval
         self.target_fps = max(1.0, float(target_fps))
 
+        self.encoder = JpegEncoder(quality=jpeg_quality)
+        self.jpeg_quality = jpeg_quality
+
         self._metrics = MetricsCollector()
         self._running = False
+        self._paused = False
         self._frame_count = 0
         self._detector_warmed = False
+        self._result_seq = 0
 
         self._latest_blurred: Optional[np.ndarray] = None
+        self._latest_jpeg: Optional[bytes] = None
         self._latest_meta: Optional[ProcessedFrame] = None
         self._frame_lock = threading.Lock()
+        self._result_cond = threading.Condition(self._frame_lock)
 
         self._process_thread: Optional[threading.Thread] = None
-        self._paused = False
+
+    # ------------------------------------------------------------------
+    # Source management
+    # ------------------------------------------------------------------
 
     def set_video_source(self, source: VideoSource) -> None:
-        """Swap the frame provider without recreating detector / blur logic."""
+        """Attach any VideoSource; detector/blur stay the same instance."""
         if self.video_source is not None:
             try:
                 self.video_source.stop()
@@ -92,9 +108,11 @@ class FramePipeline:
         self.camera = source
         self._metrics = MetricsCollector()
         self._frame_count = 0
-        with self._frame_lock:
+        with self._result_cond:
             self._latest_blurred = None
+            self._latest_jpeg = None
             self._latest_meta = None
+            self._result_seq = 0
         logger.info(
             "Video source set: %s (%s)",
             source.source_type,
@@ -104,7 +122,7 @@ class FramePipeline:
     def start(self) -> None:
         if self.video_source is None:
             raise RuntimeError(
-                "No video source selected. Connect a webcam or RTSP camera first."
+                "No video source selected. Connect a browser webcam or RTSP camera first."
             )
 
         if not self.video_source.is_opened():
@@ -117,10 +135,15 @@ class FramePipeline:
         self._paused = False
         self._running = True
         self._ensure_process_thread()
-        logger.info("Pipeline started (continuous processing loop)")
+        logger.info(
+            "Pipeline started: VideoSource → SCRFD → Blur → Encoder (%s)",
+            self.video_source.source_type,
+        )
 
     def stop(self) -> None:
         self._running = False
+        with self._result_cond:
+            self._result_cond.notify_all()
         if self._process_thread and self._process_thread.is_alive():
             self._process_thread.join(timeout=2.0)
         self._process_thread = None
@@ -132,7 +155,7 @@ class FramePipeline:
         logger.info("Pipeline stopped")
 
     def stop_source_only(self) -> None:
-        """Detach and stop the current source; processing loop keeps waiting."""
+        """Detach current source; keep detector loaded for the next source."""
         self._paused = True
         if self.video_source is not None:
             try:
@@ -141,9 +164,11 @@ class FramePipeline:
                 logger.exception("Error stopping video source")
             self.video_source = None
             self.camera = None
-        with self._frame_lock:
+        with self._result_cond:
             self._latest_blurred = None
+            self._latest_jpeg = None
             self._latest_meta = None
+            self._result_cond.notify_all()
 
     def set_paused(self, paused: bool) -> None:
         self._paused = paused
@@ -151,6 +176,10 @@ class FramePipeline:
     @property
     def is_active(self) -> bool:
         return self._running and self.video_source is not None and not self._paused
+
+    # ------------------------------------------------------------------
+    # Outputs for streamers
+    # ------------------------------------------------------------------
 
     def get_source_info(self) -> dict:
         if self.video_source is None:
@@ -175,26 +204,30 @@ class FramePipeline:
         }
 
     def get_latest_blurred_frame(self) -> Optional[np.ndarray]:
-        """Latest blurred BGR frame for the WebRTC publisher (copy)."""
         with self._frame_lock:
             if self._latest_blurred is None:
                 return None
             return self._latest_blurred.copy()
 
     def get_latest_jpeg_bytes(self) -> Optional[bytes]:
-        """Encode the latest blurred frame as JPEG for WebSocket streaming.
+        with self._frame_lock:
+            return self._latest_jpeg
 
-        Used as a reliable fallback when WebRTC media cannot traverse cloud
-        hosts (e.g. Render) that block UDP.
-        """
-        frame = self.get_latest_blurred_frame()
-        if frame is None:
-            return None
-        encode_params = [cv2.IMWRITE_JPEG_QUALITY, int(self.jpeg_quality)]
-        ok, jpeg = cv2.imencode(".jpg", frame, encode_params)
-        if not ok:
-            return None
-        return jpeg.tobytes()
+    def wait_for_jpeg(self, timeout_sec: float = 0.05) -> Tuple[int, Optional[bytes]]:
+        """Block until a new encoded frame is available (or timeout)."""
+        deadline = time.perf_counter() + max(0.0, timeout_sec)
+        with self._result_cond:
+            start_seq = self._result_seq
+            while self._latest_jpeg is None or self._result_seq == start_seq:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                self._result_cond.wait(timeout=remaining)
+            return self._result_seq, self._latest_jpeg
+
+    # ------------------------------------------------------------------
+    # Processing loop
+    # ------------------------------------------------------------------
 
     def _ensure_process_thread(self) -> None:
         if self._process_thread and self._process_thread.is_alive():
@@ -207,7 +240,7 @@ class FramePipeline:
         self._process_thread.start()
 
     def _processing_loop(self) -> None:
-        """Always process the newest source frame; drop backlog by design."""
+        """Pull newest frame from VideoSource; drop backlog by design."""
         min_interval = 1.0 / self.target_fps
         while self._running:
             loop_start = time.perf_counter()
@@ -220,15 +253,20 @@ class FramePipeline:
                 self.process_frame()
             except Exception:
                 logger.exception("Pipeline processing error")
-                time.sleep(0.05)
+                time.sleep(0.02)
                 continue
 
-            elapsed = time.perf_counter() - loop_start
-            sleep_for = min_interval - elapsed
-            if sleep_for > 0:
-                time.sleep(sleep_for)
+            # Pace continuous sources (RTSP / server webcam). Browser source
+            # already blocks inside read() until a new frame arrives.
+            source_type = getattr(self.video_source, "source_type", "")
+            if source_type != "Browser Webcam":
+                elapsed = time.perf_counter() - loop_start
+                sleep_for = min_interval - elapsed
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
 
     def process_frame(self) -> Optional[ProcessedFrame]:
+        """Single stage chain: read → SCRFD → blur → encode → publish."""
         if not self._running or self.video_source is None or self._paused:
             return None
 
@@ -243,7 +281,7 @@ class FramePipeline:
         detection_ms = (time.perf_counter() - start_det) * 1000
 
         start_blur = time.perf_counter()
-        blurred_frame = blur_faces(
+        blurred = blur_faces(
             frame,
             faces,
             method=self.blur_method,
@@ -255,35 +293,47 @@ class FramePipeline:
         )
         blur_ms = (time.perf_counter() - start_blur) * 1000
 
-        # Handoff cost (copy into shared slot). Actual video encode is WebRTC/aiortc.
         start_enc = time.perf_counter()
-        with self._frame_lock:
-            self._latest_blurred = blurred_frame
+        jpeg_bytes = self.encoder.encode(blurred) or b""
         encode_ms = (time.perf_counter() - start_enc) * 1000
 
         total_ms = (time.perf_counter() - start_total) * 1000
         self._frame_count += 1
 
-        latencies = LatencyBreakdown(
-            detection_ms=detection_ms,
-            blur_ms=blur_ms,
-            encode_ms=encode_ms,
-            total_ms=total_ms,
+        self._metrics.record_frame(
+            LatencyBreakdown(
+                detection_ms=detection_ms,
+                blur_ms=blur_ms,
+                encode_ms=encode_ms,
+                total_ms=total_ms,
+            ),
+            len(faces),
         )
-        self._metrics.record_frame(latencies, len(faces))
 
-        result = ProcessedFrame(
-            frame=blurred_frame,
-            timestamp=time.time(),
-            faces_detected=len(faces),
-            detection_latency_ms=detection_ms,
-            blur_latency_ms=blur_ms,
-            encode_latency_ms=encode_ms,
-            total_latency_ms=total_ms,
-        )
-        with self._frame_lock:
-            self._latest_meta = result
-        return result
+        with self._result_cond:
+            self._result_seq += 1
+            # Keep one BGR buffer for WebRTC; JPEG path uses _latest_jpeg only.
+            self._latest_blurred = blurred
+            self._latest_jpeg = jpeg_bytes if jpeg_bytes else None
+            # Do not retain a second full-frame copy in meta (memory).
+            self._latest_meta = ProcessedFrame(
+                frame=np.empty(0, dtype=np.uint8),
+                timestamp=time.time(),
+                faces_detected=len(faces),
+                detection_latency_ms=detection_ms,
+                blur_latency_ms=blur_ms,
+                encode_latency_ms=encode_ms,
+                total_latency_ms=total_ms,
+                jpeg_bytes=b"",
+                seq=self._result_seq,
+            )
+            self._result_cond.notify_all()
+
+        return self._latest_meta
+
+    # ------------------------------------------------------------------
+    # Metrics / config
+    # ------------------------------------------------------------------
 
     def get_metrics(self) -> PipelineMetrics:
         return self._metrics.get_summary()
@@ -291,12 +341,11 @@ class FramePipeline:
     def build_metrics_payload(self) -> dict:
         metrics = self.get_metrics()
         source_info = self.get_source_info()
-        compute_mode = self.detector.get_compute_mode()
         return {
             "fps": round(metrics.fps, 1),
             "faces_detected": metrics.faces_detected,
             "backend_status": "running" if self.is_active else "idle",
-            "compute_mode": compute_mode,
+            "compute_mode": self.detector.get_compute_mode(),
             "blur_method": self.blur_method,
             "source_type": source_info.get("source_type"),
             "camera_name": source_info.get("camera_name"),
@@ -339,10 +388,10 @@ class FramePipeline:
             self.detector.conf_threshold = det_conf_threshold
         if jpeg_quality is not None:
             self.jpeg_quality = jpeg_quality
+            self.encoder.quality = jpeg_quality
 
         logger.info(
-            "Config updated: blur_method=%s, blur_kernel=%s, "
-            "conf_threshold=%s, jpeg_quality=%s",
+            "Config updated: blur_method=%s, blur_kernel=%s, conf_threshold=%s, jpeg_quality=%s",
             self.blur_method,
             self.blur_kernel_size,
             self.detector.conf_threshold,

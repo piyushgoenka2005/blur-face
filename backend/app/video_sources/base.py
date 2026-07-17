@@ -1,8 +1,17 @@
-"""Abstract video source interface.
+"""VideoSource interface — sole frame provider contract for the pipeline.
 
-The detector and blur pipeline depend only on this contract — they never
-need to know whether frames come from a webcam or an RTSP/IP camera.
+SOLID
+-----
+- S: sources only capture / supply BGR frames
+- O: new sources implement this ABC without changing SCRFD/blur
+- L: any VideoSource is substitutable in FramePipeline
+- I: small, focused surface (start/read/stop + metadata)
+- D: detector/blur depend on this abstraction, never on RTSP or browser
+
+The detector never knows whether frames come from a browser webcam or RTSP.
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -22,33 +31,33 @@ class ConnectionStatus(str, Enum):
 
 
 class VideoSource(ABC):
-    """Common interface for all frame providers."""
+    """Abstract frame provider (BGR numpy arrays)."""
 
     @abstractmethod
     def start(self) -> None:
-        """Open the source and begin capturing frames."""
+        """Open the source and begin producing frames."""
 
     @abstractmethod
     def read(self) -> Optional[np.ndarray]:
-        """Return the latest frame (BGR), or None if not yet available."""
+        """Return the newest available BGR frame, or None."""
 
     @abstractmethod
     def stop(self) -> None:
-        """Stop capture and release hardware / network resources."""
+        """Stop capture and release resources."""
 
     @abstractmethod
     def is_opened(self) -> bool:
-        """True when the underlying capture is open and usable."""
+        """True when the source is open and usable."""
 
     @property
     @abstractmethod
     def source_type(self) -> str:
-        """Human-readable source kind, e.g. 'Laptop Webcam' or 'RTSP Camera'."""
+        """Human-readable kind, e.g. 'Browser Webcam' or 'RTSP Camera'."""
 
     @property
     @abstractmethod
     def camera_name(self) -> str:
-        """Display name for the camera (user-provided or default)."""
+        """Display name for the camera."""
 
     @property
     @abstractmethod
@@ -56,5 +65,5 @@ class VideoSource(ABC):
         """Current connection lifecycle status."""
 
     def is_running(self) -> bool:
-        """Compatibility helper used by health checks and the pipeline."""
+        """Compatibility helper for health checks."""
         return self.is_opened()

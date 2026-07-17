@@ -26,6 +26,7 @@ webrtc_manager: Optional[WebRTCManager] = None
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
+    """Liveness probe for Render (`healthCheckPath: /api/health`)."""
     source_info = pipeline.get_source_info() if pipeline else {}
     camera_running = False
     if pipeline and pipeline.video_source is not None:
@@ -111,20 +112,38 @@ async def get_source_status():
 
 @router.post("/source/connect", response_model=SourceStatusResponse)
 async def connect_source(request: SourceConnectRequest):
-    """Select and start a video source (webcam or RTSP)."""
+    """Select and start a video source (webcam or RTSP).
+
+    Reuses the process-global SCRFD detector + blur pipeline — never creates
+    a second model. RTSPSource auto-reconnects on stream loss.
+
+    Cloud: Laptop Webcam uses /ws/process (BrowserWebcamSource). Server-side
+    ``source_type=webcam`` is blocked when DISABLE_SERVER_WEBCAM=true.
+    """
     if not pipeline:
         raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+    if request.source_type == "webcam" and settings.disable_server_webcam:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Server webcam is disabled in cloud. "
+                "Use Laptop Webcam (Cloud Processing) — the browser captures "
+                "frames and sends them to /ws/process."
+            ),
+        )
 
     try:
         if pipeline.video_source is not None:
             await asyncio.to_thread(pipeline.stop_source_only)
 
+        # Build VideoSource (RTSP or server webcam); pipeline stays the same.
         source = await asyncio.to_thread(_create_and_start_source, request)
         pipeline.set_video_source(source)
         if not pipeline._detector_warmed:
             await asyncio.to_thread(pipeline.detector.warmup)
             pipeline._detector_warmed = True
-        # Start continuous detect+blur loop (independent of WebRTC peers).
+        # VideoSource → shared SCRFD → blur → encoder (no second detector).
         await asyncio.to_thread(pipeline.start)
 
     except ValueError as exc:
