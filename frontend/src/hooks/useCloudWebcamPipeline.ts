@@ -40,7 +40,7 @@ export interface UseCloudWebcamPipelineReturn {
 /** Target capture cadence for cloud processing (15–20 FPS). */
 const TARGET_FPS = 18;
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
-const JPEG_QUALITY = 0.7;
+const JPEG_QUALITY = 0.85;
 const WS_RECONNECT_MS = 1500;
 
 const defaultStats = (blurMethod: BlurMethod): CloudPipelineStats => ({

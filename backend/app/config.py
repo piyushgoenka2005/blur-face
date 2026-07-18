@@ -24,15 +24,22 @@ class Settings(BaseSettings):
     # Detection
     det_model_name: str = Field(default="det_10g", description="InsightFace model name")
     det_input_size: Tuple[int, int] = Field(default=(640, 640), description="Model input size (W, H)")
-    det_conf_threshold: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence threshold")
+    # Lower default so shake / distance / dark rooms still detect.
+    det_conf_threshold: float = Field(default=0.3, ge=0.0, le=1.0, description="Confidence threshold")
     det_nms_threshold: float = Field(default=0.4, ge=0.0, le=1.0, description="NMS threshold")
+    face_hold_sec: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=5.0,
+        description="Seconds to keep last face boxes when detection briefly drops",
+    )
 
     # Blur
     blur_method: Literal["gaussian", "pixelation"] = Field(default="gaussian", description="Blur method")
     blur_kernel_size: int = Field(default=51, ge=3, le=101, description="Gaussian kernel size (odd)")
     blur_sigma: float = Field(default=30.0, gt=0, description="Gaussian sigma")
     blur_pixelation_block: int = Field(default=16, ge=4, le=64, description="Pixelation block size")
-    blur_margin: float = Field(default=0.12, ge=0.0, le=0.5, description="Bbox expansion margin")
+    blur_margin: float = Field(default=0.2, ge=0.0, le=0.5, description="Bbox expansion margin")
 
     # WebSocket
     ws_max_queue_size: int = Field(default=5, description="Max frames in queue")

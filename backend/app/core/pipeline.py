@@ -18,13 +18,16 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from .detector import SCRFDDetector
+from .detector import Face, SCRFDDetector
 from .blur import blur_faces
 from .encoder import JpegEncoder
 from .metrics import MetricsCollector, LatencyBreakdown, PipelineMetrics
 from ..video_sources.base import ConnectionStatus, VideoSource
 
 logger = logging.getLogger(__name__)
+
+# Keep last boxes briefly so shake / brief SCRFD misses don't flash a clear face.
+_DEFAULT_FACE_HOLD_SEC = 1.0
 
 
 @dataclass
@@ -61,6 +64,7 @@ class FramePipeline:
         jpeg_quality: int = 80,
         metrics_interval: int = 10,
         target_fps: float = 25.0,
+        face_hold_sec: float = _DEFAULT_FACE_HOLD_SEC,
     ):
         self.detector = detector
         self.video_source: Optional[VideoSource] = video_source
@@ -73,6 +77,7 @@ class FramePipeline:
         self.blur_margin = blur_margin
         self.metrics_interval = metrics_interval
         self.target_fps = max(1.0, float(target_fps))
+        self.face_hold_sec = max(0.0, float(face_hold_sec))
 
         self.encoder = JpegEncoder(quality=jpeg_quality)
         self.jpeg_quality = jpeg_quality
@@ -83,6 +88,9 @@ class FramePipeline:
         self._frame_count = 0
         self._detector_warmed = False
         self._result_seq = 0
+
+        self._held_faces: list[Face] = []
+        self._held_until: float = 0.0
 
         self._latest_blurred: Optional[np.ndarray] = None
         self._latest_jpeg: Optional[bytes] = None
@@ -113,6 +121,8 @@ class FramePipeline:
             self._latest_jpeg = None
             self._latest_meta = None
             self._result_seq = 0
+        self._held_faces = []
+        self._held_until = 0.0
         logger.info(
             "Video source set: %s (%s)",
             source.source_type,
@@ -164,6 +174,8 @@ class FramePipeline:
                 logger.exception("Error stopping video source")
             self.video_source = None
             self.camera = None
+        self._held_faces = []
+        self._held_until = 0.0
         with self._result_cond:
             self._latest_blurred = None
             self._latest_jpeg = None
@@ -265,6 +277,18 @@ class FramePipeline:
                 if sleep_for > 0:
                     time.sleep(sleep_for)
 
+    def _apply_face_hold(self, faces: list[Face]) -> list[Face]:
+        """Reuse recent boxes briefly when SCRFD drops (shake / distance / darkness)."""
+        now = time.time()
+        if faces:
+            self._held_faces = faces
+            self._held_until = now + self.face_hold_sec
+            return faces
+        if self._held_faces and now <= self._held_until:
+            return self._held_faces
+        self._held_faces = []
+        return []
+
     def process_frame(self) -> Optional[ProcessedFrame]:
         """Single stage chain: read → SCRFD → blur → encode → publish."""
         if not self._running or self.video_source is None or self._paused:
@@ -277,7 +301,8 @@ class FramePipeline:
         start_total = time.perf_counter()
 
         start_det = time.perf_counter()
-        faces = self.detector.detect(frame)
+        raw_faces = self.detector.detect(frame)
+        faces = self._apply_face_hold(raw_faces)
         detection_ms = (time.perf_counter() - start_det) * 1000
 
         start_blur = time.perf_counter()
@@ -386,6 +411,8 @@ class FramePipeline:
             self.blur_pixelation_block = blur_pixelation_block
         if det_conf_threshold is not None:
             self.detector.conf_threshold = det_conf_threshold
+            if hasattr(self.detector, "_sync_model_threshold"):
+                self.detector._sync_model_threshold()
         if jpeg_quality is not None:
             self.jpeg_quality = jpeg_quality
             self.encoder.quality = jpeg_quality

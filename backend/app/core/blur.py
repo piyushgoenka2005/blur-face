@@ -12,9 +12,9 @@ def _expand_bbox(bbox: tuple, margin: float, frame_w: int, frame_h: int) -> tupl
     x1, y1, x2, y2 = bbox
     w = x2 - x1
     h = y2 - y1
-    mx = int(w * margin * 0.65)
-    my_top = int(h * margin * 0.45)
-    my_bottom = int(h * margin * 0.75)
+    mx = int(w * margin * 0.85)
+    my_top = int(h * margin * 0.65)
+    my_bottom = int(h * margin * 0.95)
     return (
         int(max(0, x1 - mx)),
         int(max(0, y1 - my_top)),
@@ -30,7 +30,7 @@ def blur_faces(
     kernel_size: int = 51,
     sigma: float = 30.0,
     pixelation_block: int = 16,
-    margin: float = 0.12,
+    margin: float = 0.2,
     draw_debug_rectangles: bool = True
 ) -> np.ndarray:
     """

@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI):
         blur_margin=settings.blur_margin,
         jpeg_quality=settings.jpeg_quality,
         target_fps=settings.webrtc_target_fps,
+        face_hold_sec=settings.face_hold_sec,
     )
     runtime.pipeline = pipeline
 
